@@ -1,2 +1,4 @@
+github.com/andfenastari/templatemap v0.0.0-20210220154937-a5a5ec0e9e01 h1:Rf0k2qvy51bPmPpmNPQkEphJUAxG1LJMdsDybRw/cek=
+github.com/andfenastari/templatemap v0.0.0-20210220154937-a5a5ec0e9e01/go.mod h1:NbliO55agOrBrxdpLD0z8xji4mPOqQgb1QLGea3+iL8=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

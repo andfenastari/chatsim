@@ -1,0 +1,21 @@
+{{template "super.tmpl" .}}
+{{define "content"}}
+  <div id=chat>
+    <ol id=messages hx-ext=sse sse-connect="/web/{{.Data.User}}/events" sse-swap=message>
+    <li class="msg-other">
+      <p>Sup?</p>
+    </li>
+    {{range .Data.Messages}}
+      <li class="{{or (and (eq .To $.State.AgentPhone) "msg-self") "msg-other"}}">
+        {{if eq .Type "text"}}
+          <p>{{.Text.Body}}</p>
+        {{end}}
+      </li>
+    {{end}}
+    </ol>
+    <form id=message-form hx-post="/web/{{.Data.User}}" hx-target="#messages" hx-swap=beforeend>
+      <input name=message type=textarea rows=5 resize=false placeholder="Say something...">
+      <button>Send</button>
+    </form>
+  </div>
+{{end}}

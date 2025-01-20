@@ -1,12 +1,26 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"log"
+	"net/http"
 	"sync"
 )
 
 type State struct {
-	mux   sync.Mutex
-	Chats []*Chat `json:"chats"`
+	mux            sync.Mutex
+	client         http.Client
+	addListener    chan Listener
+	removeListener chan Listener
+	events         chan *Event
+	AgentPhone     string
+	Chats          []*Chat `json:"chats"`
+}
+
+type Event struct {
+	User    string
+	Message *Message
 }
 
 type Chat struct {
@@ -22,6 +36,44 @@ type Message struct {
 
 type TextMessage struct {
 	Body string `json:"body"`
+}
+
+type jsonObject = map[string]interface{}
+type jsonList = []interface{}
+
+type Listener struct {
+	User   string
+	Events chan *Event
+}
+
+func NewState() *State {
+	events := make(chan *Event, 10)
+	addListener := make(chan Listener, 10)
+	removeListener := make(chan Listener, 10)
+
+	go func() {
+		listeners := make(map[Listener]bool)
+
+		select {
+		case listener := <-addListener:
+			listeners[listener] = true
+		case listener := <-removeListener:
+			delete(listeners, listener)
+		case event := <-events:
+			for listener := range listeners {
+				if event.User != listener.User {
+					continue
+				}
+				listener.Events <- event
+			}
+		}
+	}()
+
+	return &State{
+		AgentPhone:  *agentPhone,
+		addListener: addListener,
+		events:      events,
+	}
 }
 
 func (s *State) GetOrCreateChat(user string) *Chat {
@@ -40,4 +92,45 @@ func (s *State) GetOrCreateChat(user string) *Chat {
 func (s *State) AddMessage(user string, msg *Message) {
 	chat := s.GetOrCreateChat(user)
 	chat.Messages = append(chat.Messages, msg)
+	s.events <- &Event{User: user, Message: msg}
+}
+
+func (s *State) AddListener(user string) chan *Event {
+	events := make(chan *Event, 10)
+	s.addListener <- Listener{User: user, Events: events}
+	return events
+}
+
+func (s *State) RemoveListener(user string, events chan *Event) {
+	s.removeListener <- Listener{User: user, Events: events}
+}
+
+func (s *State) SendWebhook(user string, msg *Message) (err error) {
+	body := jsonObject{
+		"object": "whatsapp_business_account",
+		"entry": jsonList{
+			jsonObject{
+				"id": *agentPhone,
+				"changes": jsonList{
+					jsonObject{
+						"field": "messages",
+						"value": jsonObject{
+							"messaging_product": "whatsapp",
+							"metadata": jsonObject{
+								"display_phone_number": user,
+								"phone_number_id":      user,
+							},
+							"messages": jsonList{msg},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	bodyBytes, _ := json.Marshal(body)
+	bodyReader := bytes.NewReader(bodyBytes)
+	_, err = s.client.Post(*webhook, "text/json", bodyReader)
+
+	return err
 }

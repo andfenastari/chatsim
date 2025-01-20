@@ -1,0 +1,12 @@
+{{template "super.tmpl" .}}
+
+{{define "content"}}
+<div id=create-around>
+  <form id=create-form action="/web/create" method=post>
+    <h1>Create new chat</h1>
+    <label>Phone: <input type=text placeholder="User phone" id=user name=user></label>
+    <hr>
+    <button>Create</button>
+  </form>
+</div>
+{{end}}

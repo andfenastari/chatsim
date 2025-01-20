@@ -1,0 +1,9 @@
+{{- with .Data -}}
+data:  <li class="msg-other">
+    {{- if eq .Type "text" -}}
+data:      <p>{{.Text.Body}}</p>
+    {{- end -}}
+data:  </li>
+{{- end -}}
+
+

@@ -1,0 +1,30 @@
+<!doctype html>
+
+<html>
+	<head>
+		<title>Hello, WEB!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<link rel=stylesheet href="/static/styles.css">
+		<script src="/static/htmx.js"></script>
+		<script src="/static/sse.js"></script>
+	</head>
+	<body>
+		<header>
+			<button><img class=icon src="/static/save.svg">Save</button>
+			<hr>
+			<button><img class=icon src="/static/save_as.svg">Save as...</button>
+			<hr>
+		</header>
+		<nav>
+			{{range .State.Chats}}
+				<a href="/web/{{.User}}"><img class=icon src="/static/chat.svg">{{.User}}</a>
+				<hr>
+			{{end}}
+			<a href="/web/create"><img class=icon src="/static/add.svg"> New Chat</a>
+			<hr>
+		</nav>
+		<main>
+			{{block "content" .}}{{end}}
+		</main>
+	</body>
+</html>
