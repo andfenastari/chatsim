@@ -106,31 +106,5 @@ func (s *State) RemoveListener(user string, events chan *Event) {
 }
 
 func (s *State) SendWebhook(user string, msg *Message) (err error) {
-	body := jsonObject{
-		"object": "whatsapp_business_account",
-		"entry": jsonList{
-			jsonObject{
-				"id": *agentPhone,
-				"changes": jsonList{
-					jsonObject{
-						"field": "messages",
-						"value": jsonObject{
-							"messaging_product": "whatsapp",
-							"metadata": jsonObject{
-								"display_phone_number": user,
-								"phone_number_id":      user,
-							},
-							"messages": jsonList{msg},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	bodyBytes, _ := json.Marshal(body)
-	bodyReader := bytes.NewReader(bodyBytes)
-	_, err = s.client.Post(*webhook, "text/json", bodyReader)
-
 	return err
 }

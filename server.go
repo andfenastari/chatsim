@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	_ "embed"
 	"encoding/json"
@@ -12,6 +13,8 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/andfenastari/chatsim/core"
+	"github.com/andfenastari/chatsim/shell/api"
 	"github.com/andfenastari/templatemap"
 )
 
@@ -33,6 +36,14 @@ type Server struct {
 }
 
 func main() {
+	ctx := context.Background()
+	core := core.NewCore(ctx)
+	server := api.NewServer(core)
+
+	http.ListenAndServe(fmt.Sprintf(":%d", *port), server)
+}
+
+func bup() {
 	flag.CommandLine.Usage = usage
 	flag.Parse()
 	// if *webhook == "" {
