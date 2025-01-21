@@ -4,6 +4,8 @@ import (
 	"context"
 	"slices"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 type Core struct {
@@ -16,6 +18,7 @@ type Core struct {
 	Mux   sync.Mutex
 	Users []string
 	Chats []*Chat `json:"chats"`
+	Media []*Media
 }
 
 type Chat struct {
@@ -32,6 +35,13 @@ type Message struct {
 
 type TextMessage struct {
 	Body string `json:"body"`
+}
+
+type Media struct {
+	Id   string `json:"id"`
+	User string `json:"user"`
+	Type string `json:"type"`
+	Data []byte `json:"data"`
 }
 
 func NewCore(ctx context.Context) *Core {
@@ -70,6 +80,29 @@ func (c *Core) GetOrCreateChat(members []string) *Chat {
 func (c *Core) AddMessage(chat *Chat, msg *Message) {
 	chat.Messages = append(chat.Messages, msg)
 	c.events <- msg
+}
+
+func (c *Core) AddMedia(user, typ string, data []byte) string {
+	id := uuid.NewString()
+	m := &Media{
+		Id:   id,
+		User: user,
+		Type: typ,
+		Data: data,
+	}
+	c.Media = append(c.Media, m)
+
+	return id
+}
+
+func (c *Core) GetMedia(id string) *Media {
+	for _, media := range c.Media {
+		if media.Id == id {
+			return media
+		}
+	}
+
+	return nil
 }
 
 func (c *Core) AddListener() chan *Message {

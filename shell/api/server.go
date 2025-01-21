@@ -30,8 +30,11 @@ func NewServer(core *core.Core) *Server {
 	server.Core = core
 
 	server.HandleFunc("POST /{user}/messages", server.handleCreateMessage)
+	server.HandleFunc("GET /{user}/messages", server.handleListMessages)
 	server.HandleFunc("POST /{user}/webhooks", server.handleCreateWebhook)
 	server.HandleFunc("DELETE /{user}/webhooks/{id}", server.handleDeleteWebhook)
+
+	go server.notifyWebhooks()
 
 	return server
 }
@@ -46,11 +49,30 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 
 	msg.From = user
 
+	log.Printf("Received message: %+v", msg)
+
 	s.Core.Mux.Lock()
 	defer s.Core.Mux.Unlock()
 
 	chat := s.Core.GetOrCreateChat([]string{msg.From, msg.To})
 	s.Core.AddMessage(chat, msg)
+}
+
+func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
+	user := r.PathValue("user")
+	peer := r.FormValue("peer")
+
+	if peer == "" {
+		http.Error(w, "Missing peer query parameter", http.StatusBadRequest)
+	}
+
+	s.Core.Mux.Lock()
+	chat := s.Core.GetOrCreateChat([]string{user, peer})
+	s.Core.Mux.Unlock()
+
+	if s.encodeJSON(w, chat.Messages) {
+		return
+	}
 }
 
 type CreateWebhookRequest struct {
@@ -68,6 +90,8 @@ func (s *Server) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 	if s.decodeJSON(w, r, &req) {
 		return
 	}
+
+	log.Printf("Received webhook: %+v", req)
 
 	url, err := url.Parse(req.URL)
 	if err != nil {
@@ -87,6 +111,8 @@ func (s *Server) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+
+	log.Printf("Deleted webhook: %+v", id)
 
 	s.Webhooks.Delete(id)
 }
@@ -132,8 +158,10 @@ func (s *Server) notifyWebhooks() {
 			bodyReader := bytes.NewReader(bodyBytes)
 			_, err := s.Client.Post(webhook.URL.String(), "text/json", bodyReader)
 			if err != nil {
-				log.Print("Failed to send webhook %s to %s: %v", id, webhook.User, err)
+				log.Printf("Failed to send webhook %s to %s: %v", id, webhook.User, err)
 			}
+
+			log.Printf("Sent webhook: %+v", body)
 
 			return true
 		})
@@ -141,6 +169,7 @@ func (s *Server) notifyWebhooks() {
 }
 
 func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, val any) (failed bool) {
+	log.Printf("Decoding %T", val)
 	err := json.NewDecoder(r.Body).Decode(val)
 	if err != nil {
 		log.Print("Failed to decode body %T: %v", val, err)
@@ -152,6 +181,7 @@ func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, val any) (fa
 }
 
 func (s *Server) encodeJSON(w http.ResponseWriter, val any) (failed bool) {
+	log.Printf("Encoding %v", val)
 	err := json.NewEncoder(w).Encode(val)
 	if err != nil {
 		log.Print("Failed to encode response %T: %v", val, err)
