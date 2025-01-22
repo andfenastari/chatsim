@@ -169,7 +169,7 @@ main {
   padding: 5px;
   border: var(--border) solid var(--fg-color);
   border-radius: 20px;
-  max-width: 200px;
+  max-width: 55%;
   min-width: 50px;
   overflow-wrap: break-word;
 }
@@ -184,7 +184,7 @@ main {
   align-self: flex-start;
 }
 
-#messages img {
+#messages .msg-image {
   width: 100%;
   border: 2px solid var(--fg-color);
   margin: 1px;
@@ -200,5 +200,11 @@ main {
 
 #message-form > input[type=textarea] {
   flex-grow: 1;
+}
 
+.msg-doc {
+  display: flex;
+  border: 1px solid var(--fg-color);
+  align-items: center;
+  margin: 2px;
 }

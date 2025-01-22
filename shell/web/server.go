@@ -170,7 +170,7 @@ func (s *Handler) handleMessage(w http.ResponseWriter, r *http.Request) {
 			Text: &core.TextMessage{Body: text},
 		}
 	case "image":
-		data, failed := readFile(w, r, "image")
+		data, _, failed := readFile(w, r, "image")
 		if failed {
 			return
 		}
@@ -192,7 +192,7 @@ func (s *Handler) handleMessage(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case "audio":
-		data, failed := readFile(w, r, "audio")
+		data, _, failed := readFile(w, r, "audio")
 		if failed {
 			return
 		}
@@ -209,6 +209,30 @@ func (s *Handler) handleMessage(w http.ResponseWriter, r *http.Request) {
 				MediaId: id,
 			},
 		}
+
+	case "document":
+		data, filename, failed := readFile(w, r, "document")
+		if failed {
+			return
+		}
+
+		caption := r.FormValue("caption")
+
+		s.Core.Lock()
+		id := s.Core.AddMedia(s.User, "Microsoft Excel", data)
+		s.Core.Unlock()
+
+		msg = &core.Message{
+			From: peer,
+			To:   s.User,
+			Type: "document",
+			Document: &core.DocumentMessage{
+				MediaId:  id,
+				FileName: filename,
+				Caption:  caption,
+			},
+		}
+
 	default:
 		http.Error(w, fmt.Sprintf("Unsupported message type '%s'.", typ), http.StatusBadRequest)
 		return
@@ -222,23 +246,23 @@ func (s *Handler) handleMessage(w http.ResponseWriter, r *http.Request) {
 	s.responseTemplate(w, "message.tmpl", msg)
 }
 
-func readFile(w http.ResponseWriter, r *http.Request, name string) (data []byte, failed bool) {
+func readFile(w http.ResponseWriter, r *http.Request, name string) (data []byte, filename string, failed bool) {
 
-	file, _, err := r.FormFile(name)
+	file, header, err := r.FormFile(name)
 	if err != nil {
 		log.Printf("Failed to open media file: %v", err)
 		http.Error(w, "Internal handler error", http.StatusInternalServerError)
-		return nil, true
+		return nil, "", true
 	}
 
 	data, err = io.ReadAll(file)
 	if err != nil {
 		log.Printf("Failed to read media file: %v", err)
 		http.Error(w, "Internal handler error", http.StatusInternalServerError)
-		return nil, true
+		return nil, "", true
 	}
 
-	return data, false
+	return data, header.Filename, false
 }
 
 func (s *Handler) handleEvents(w http.ResponseWriter, r *http.Request) {

@@ -2,13 +2,21 @@
 	{{- $user := index . 0 -}}
 	{{- $msg := index . 1 -}}
 	<li class="{{or (and (eq $msg.From $user) "msg-other") "msg-self"}}">
-	{{if eq $msg.Type "text"}}
+	{{- if eq $msg.Type "text" -}}
 	  <p>{{$msg.Text.Body}}</p>
-	{{end}}
-	{{if eq $msg.Type "image"}}
-		<img src="/media/{{$msg.Image.MediaId}}">
+	{{- end -}}
+	{{- if eq $msg.Type "image" -}}
+		<img class=msg-image src="/media/{{$msg.Image.MediaId}}">
 		{{if $msg.Image.Caption}}<p>{{$msg.Image.Caption}}</p>{{end}}
-	{{end}}
+	{{- end -}}
+	{{- if eq $msg.Type "document"}}
+		<div class=msg-doc>
+			<img class=icon src="/static/document.svg">
+			<span>{{$msg.Document.FileName}}</span>
+			<a href="/media/{{$msg.Document.MediaId}}" hx-boost=false download><img class=icon src="/static/download.svg"></a>
+		</div>
+		<p>{{$msg.Document.Caption}}</p>
+	{{- end -}}
   </li>
 {{- end -}}
 

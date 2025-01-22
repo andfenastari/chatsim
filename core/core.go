@@ -44,13 +44,14 @@ type Chat struct {
 }
 
 type Message struct {
-	From  string        `json:"from"`
-	To    string        `json:"to"`
-	Type  string        `json:"type"`
-	Text  *TextMessage  `json:"text,omitempty"`
-	Image *ImageMessage `json:"image,omitempty"`
-	Audio *AudioMessage `json:"audio,omitempty"`
-	Extra interface{}   `json:"extra",omitempty`
+	From     string           `json:"from"`
+	To       string           `json:"to"`
+	Type     string           `json:"type"`
+	Text     *TextMessage     `json:"text,omitempty"`
+	Image    *ImageMessage    `json:"image,omitempty"`
+	Audio    *AudioMessage    `json:"audio,omitempty"`
+	Document *DocumentMessage `json:"document,omitempty"`
+	Extra    interface{}      `json:"extra,omitempty"`
 }
 
 type TextMessage struct {
@@ -64,6 +65,12 @@ type ImageMessage struct {
 
 type AudioMessage struct {
 	MediaId string `json:"id"`
+}
+
+type DocumentMessage struct {
+	MediaId  string `json:"id"`
+	Caption  string `json:"caption"`
+	FileName string `json:"filename"`
 }
 
 type Media struct {
