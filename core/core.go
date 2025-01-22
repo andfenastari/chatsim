@@ -3,7 +3,10 @@ package core
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"log"
+	"os"
 	"slices"
 	"sync"
 
@@ -19,35 +22,48 @@ var (
 	}
 )
 
+type Snapshot struct {
+	Chats []*Chat  `json:"chats"`
+	Media []*Media `json:"media"`
+}
+
 type Core struct {
 	sync.RWMutex
+	Snapshot
 
 	ctx context.Context
 
 	addListener    chan chan *Message
 	removeListener chan chan *Message
 	events         chan *Message
-
-	Users []string
-	Chats []*Chat `json:"chats"`
-	Media []*Media
 }
 
 type Chat struct {
-	Members  [2]string  `json:"members"`
+	Members  [2]string  `json:"participants"`
 	Messages []*Message `json:"messages"`
 }
 
 type Message struct {
-	From string       `json:"from"`
-	To   string       `json:"to"`
-	Type string       `json:"type"`
-	Text *TextMessage `json:"text,omitempty"`
-	Data interface{}
+	From  string        `json:"from"`
+	To    string        `json:"to"`
+	Type  string        `json:"type"`
+	Text  *TextMessage  `json:"text,omitempty"`
+	Image *ImageMessage `json:"image,omitempty"`
+	Audio *AudioMessage `json:"audio,omitempty"`
+	Extra interface{}   `json:"extra",omitempty`
 }
 
 type TextMessage struct {
 	Body string `json:"body"`
+}
+
+type ImageMessage struct {
+	MediaId string `json:"id"`
+	Caption string `json:"caption,omitempty"`
+}
+
+type AudioMessage struct {
+	MediaId string `json:"id"`
 }
 
 type Media struct {
@@ -168,4 +184,52 @@ func (c *Core) notifyListeners() {
 			return
 		}
 	}
+}
+
+func (c *Core) SaveSnapshot(path string) (err error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("Failed to open snapshot '%s': %w", path, err)
+	}
+
+	enc := json.NewEncoder(file)
+	enc.SetIndent("", "  ")
+	err = enc.Encode(c.Snapshot)
+	if err != nil {
+		return fmt.Errorf("Failed to encode snapshot '%s': %w", err)
+	}
+
+	return nil
+}
+
+func (c *Core) LoadSnapshot(path string) (err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("Failed to open snapshot '%s: %w'", path, err)
+	}
+
+	var snapshot Snapshot
+	err = json.NewDecoder(file).Decode(&snapshot)
+	if err != nil {
+		return fmt.Errorf("Failed to decode snapshot '%s': %w", path, err)
+	}
+
+	c.Snapshot = snapshot
+	return nil
+}
+
+func (c *Core) LoadChat(path string) (err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("Failed to open chat '%s: %w'", path, err)
+	}
+
+	var chat *Chat
+	err = json.NewDecoder(file).Decode(&chat)
+	if err != nil {
+		return fmt.Errorf("Failed to decode chat '%s': %w", path, err)
+	}
+
+	c.Chats = append(c.Chats, chat)
+	return nil
 }

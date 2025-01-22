@@ -11,12 +11,53 @@
       {{end}}
     </ol>
     <form id=message-form
-      hx-post="/chat/{{$peer}}"
-      hx-target="#messages"
-      hx-swap="beforeend scroll:bottom"
-      hx-on::after-request="if(event.detail.successful) this.reset()">
-      <input name=text type=textarea rows=5 resize=false placeholder="Say something...">
-      <button>Send</button>
+        hx-post="/chat/{{$peer}}"
+        hx-target="#messages"
+        hx-swap="beforeend scroll:bottom"
+        hx-on::after-request="if(event.detail.successful) this.reset()">
+      <input type="hidden" name="type" value="text">
+      <input required name=text type=textarea rows=5 resize=false placeholder="Say something...">
+
+      <button type=button onclick="openDialog('image-dialog')"><img class=icon src="/static/photo.svg"></button>
+      <button type=button onclick="openDialog('audio-dialog')"><img class=icon src="/static/audio.svg"></button>
+      <button><img class=icon src="/static/send.svg"></button>
     </form>
+
+    <dialog id=image-dialog>
+      <div>
+        <button class=close onclick="closeDialog('image-dialog')"><img class=icon src="/static/close.svg"></button>
+        <form class=dialog-form
+            hx-post="/chat/{{$peer}}"
+            hx-encoding="multipart/form-data"
+            hx-target="#messages"
+            hx-swap="beforeend scroll:bottom"
+            hx-on::after-request="if(event.detail.successful) this.reset()">
+          <h1>Upload image</h1>
+          <input type="hidden" name="type" value="image">
+          <label>Image: <input name=image type=file accept=image/png capture=environment required></label>
+          <label>Description: <input name=caption type=textarea></label>
+
+          <button>Send</button>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog id=audio-dialog>
+      <div>
+        <button class=close onclick="closeDialog('audio-dialog')"><img class=icon src="/static/close.svg"></button>
+        <form class=dialog-form
+            hx-post="/chat/{{$peer}}"
+            hx-encoding="multipart/form-data"
+            hx-target="#messages"
+            hx-swap="beforeend scroll:bottom"
+            hx-on::after-request="if(event.detail.successful) this.reset()">
+          <h1>Upload audio</h1>
+          <input type="hidden" name="type" value="audio">
+          <label>Audio: <input name=image type=file accept=sound/mpeg capture=environment required></label>
+
+          <button>Send</button>
+        </form>
+      </div>
+    </dialog>
   </div>
 {{end}}

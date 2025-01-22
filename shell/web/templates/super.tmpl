@@ -1,9 +1,13 @@
 {{- define "message" -}}
 	{{- $user := index . 0 -}}
 	{{- $msg := index . 1 -}}
-	<li class="{{or (and (eq $msg.From $user) "msg-self") "msg-other"}}">
+	<li class="{{or (and (eq $msg.From $user) "msg-other") "msg-self"}}">
 	{{if eq $msg.Type "text"}}
 	  <p>{{$msg.Text.Body}}</p>
+	{{end}}
+	{{if eq $msg.Type "image"}}
+		<img src="/media/{{$msg.Image.MediaId}}">
+		{{if $msg.Image.Caption}}<p>{{$msg.Image.Caption}}</p>{{end}}
 	{{end}}
   </li>
 {{- end -}}
@@ -17,12 +21,21 @@
 		<link rel=stylesheet href="/static/styles.css">
 		<script src="/static/htmx.js"></script>
 		<script src="/static/sse.js"></script>
+		<script>
+			function openDialog(id) {
+				document.getElementById(id).showModal()
+			}
+
+			function closeDialog(id) {
+				document.getElementById(id).close()
+			}
+		</script>
 	</head>
 	<body hx-boost=true>
 		<header>
-			<button><img class=icon src="/static/save.svg">Save</button>
+			<button hx-post="/snapshot/save" hx-swap=none><img class=icon src="/static/save.svg">Save Snapshot</button>
 			<hr>
-			<button><img class=icon src="/static/save_as.svg">Save as...</button>
+			<a href="/snapshot/download" hx-boost=false download><img class=icon src="/static/download.svg">Download Snapshot</a>
 			<hr>
 		</header>
 		<nav>

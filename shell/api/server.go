@@ -107,13 +107,19 @@ func (s *Handler) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	id := s.RegisterWebhook(user, url)
+
+	s.encodeJSON(w, CreateWebhookResponse{Id: id})
+}
+
+func (s *Handler) RegisterWebhook(user string, url *url.URL) string {
 	id := uuid.NewString()
 	s.Webhooks.Store(id, Webhook{
 		URL:  url,
 		User: user,
 	})
 
-	s.encodeJSON(w, CreateWebhookResponse{Id: id})
+	return id
 }
 
 func (s *Handler) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
@@ -175,10 +181,11 @@ func (s *Handler) handleViewMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	baseUrl := r.URL
+	log.Print(baseUrl)
 
 	s.encodeJSON(w, ViewMediaResponse{
 		MessagingProduct: "whatsapp",
-		URL:              fmt.Sprintf("%s:%s/%s/download", baseUrl.Scheme, baseUrl.Host, mediaId),
+		URL:              fmt.Sprintf("http://localhost:8000/%s/download", mediaId), // TODO: Un-fake url
 		Sha256:           media.Hash,
 		MimeType:         media.ContentType(),
 		FileSize:         len(media.Data),

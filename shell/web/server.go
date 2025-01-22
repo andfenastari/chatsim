@@ -3,7 +3,10 @@ package web
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
+	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -19,17 +22,19 @@ var assets embed.FS
 type Handler struct {
 	http.ServeMux
 
-	User  string
-	Devel bool
-	Core  *core.Core
-	Tmap  templatemap.Map
+	User         string
+	Devel        bool
+	SnapshotPath string
+
+	Core *core.Core
+	Tmap templatemap.Map
 }
 
 func arr(els ...any) []any {
 	return els
 }
 
-func NewHandler(core *core.Core, user string, devel bool) *Handler {
+func NewHandler(core *core.Core, user string, devel bool, snapshot string) *Handler {
 	var err error
 
 	var tmap templatemap.Map
@@ -53,23 +58,27 @@ func NewHandler(core *core.Core, user string, devel bool) *Handler {
 	}
 
 	handler := &Handler{
-		User:  user,
-		Core:  core,
-		Devel: devel,
-		Tmap:  tmap,
+		User:         user,
+		Core:         core,
+		Devel:        devel,
+		SnapshotPath: snapshot,
+		Tmap:         tmap,
 	}
 
 	handler.HandleFunc("GET /", handler.handleIndex)
+	handler.HandleFunc("POST /snapshot/save", handler.handleSaveSnapshot)
+	handler.HandleFunc("GET /snapshot/download", handler.handleDownloadSnapshot)
 	handler.HandleFunc("GET /chat/{peer}", handler.handleChat)
 	handler.HandleFunc("POST /chat/{peer}", handler.handleMessage)
 	handler.HandleFunc("GET /chat/{peer}/events", handler.handleEvents)
+	handler.HandleFunc("GET /media/{media}", handler.handleGetMedia)
 	handler.HandleFunc("GET /chat/create", handler.handleCreateForm)
 	handler.HandleFunc("POST /chat/create", handler.handleCreate)
 
 	if !devel {
 		handler.Handle("GET /static/", http.FileServer(http.FS(assets)))
 	} else {
-		handler.Handle("GET /static/", http.FileServer(http.Dir("shell/web")))
+		handler.Handle("GET /static/", http.FileServer(http.Dir("./shell/web")))
 	}
 
 	return handler
@@ -83,6 +92,27 @@ func (s *Handler) handleIndex(w http.ResponseWriter, req *http.Request) {
 		peer := s.Core.Chats[0].Peer(s.User)
 
 		http.Redirect(w, req, must(url.JoinPath("/chat/", peer)), http.StatusFound)
+		return
+	}
+}
+
+func (s *Handler) handleSaveSnapshot(w http.ResponseWriter, r *http.Request) {
+	err := s.Core.SaveSnapshot(s.SnapshotPath)
+	if err != nil {
+		log.Print(err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (s *Handler) handleDownloadSnapshot(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+
+	err := json.NewEncoder(w).Encode(s.Core.Snapshot)
+	if err != nil {
+		log.Printf("Failed to send snapshot: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 }
@@ -124,13 +154,64 @@ func (s *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
 
 func (s *Handler) handleMessage(w http.ResponseWriter, r *http.Request) {
 	peer := r.PathValue("peer")
-	text := r.FormValue("text")
+	typ := r.FormValue("type")
 
-	msg := &core.Message{
-		From: s.User,
-		To:   peer,
-		Type: "text",
-		Text: &core.TextMessage{Body: text},
+	var msg *core.Message
+	switch typ {
+	case "text":
+		text := r.FormValue("text")
+		if text == "" {
+			http.Error(w, "Must supply 'text' value.", http.StatusBadRequest)
+		}
+		msg = &core.Message{
+			From: peer,
+			To:   s.User,
+			Type: "text",
+			Text: &core.TextMessage{Body: text},
+		}
+	case "image":
+		data, failed := readFile(w, r, "image")
+		if failed {
+			return
+		}
+
+		s.Core.Lock()
+		id := s.Core.AddMedia(s.User, "PNG", data)
+		s.Core.Unlock()
+
+		caption := r.FormValue("caption")
+
+		msg = &core.Message{
+			From: peer,
+			To:   s.User,
+			Type: "image",
+			Image: &core.ImageMessage{
+				MediaId: id,
+				Caption: caption,
+			},
+		}
+
+	case "audio":
+		data, failed := readFile(w, r, "audio")
+		if failed {
+			return
+		}
+
+		s.Core.Lock()
+		id := s.Core.AddMedia(s.User, "MP3", data)
+		s.Core.Unlock()
+
+		msg = &core.Message{
+			From: peer,
+			To:   s.User,
+			Type: "image",
+			Audio: &core.AudioMessage{
+				MediaId: id,
+			},
+		}
+	default:
+		http.Error(w, fmt.Sprintf("Unsupported message type '%s'.", typ), http.StatusBadRequest)
+		return
 	}
 
 	s.Core.Lock()
@@ -141,9 +222,28 @@ func (s *Handler) handleMessage(w http.ResponseWriter, r *http.Request) {
 	s.responseTemplate(w, "message.tmpl", msg)
 }
 
+func readFile(w http.ResponseWriter, r *http.Request, name string) (data []byte, failed bool) {
+
+	file, _, err := r.FormFile(name)
+	if err != nil {
+		log.Printf("Failed to open media file: %v", err)
+		http.Error(w, "Internal handler error", http.StatusInternalServerError)
+		return nil, true
+	}
+
+	data, err = io.ReadAll(file)
+	if err != nil {
+		log.Printf("Failed to read media file: %v", err)
+		http.Error(w, "Internal handler error", http.StatusInternalServerError)
+		return nil, true
+	}
+
+	return data, false
+}
+
 func (s *Handler) handleEvents(w http.ResponseWriter, r *http.Request) {
 	peer := r.PathValue("peer")
-	log.Print("event connection: %s", peer)
+	log.Printf("event connection: %s", peer)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -159,7 +259,7 @@ out:
 		case <-done:
 			break out
 		case msg := <-events:
-			if msg.From != peer {
+			if msg.From != s.User || msg.To != peer {
 				continue
 			}
 			s.responseSSE(w, "message.tmpl", msg)
@@ -167,6 +267,17 @@ out:
 	}
 
 	log.Print("event disconnected: %s", peer)
+}
+
+func (s *Handler) handleGetMedia(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("media")
+
+	s.Core.RLock()
+	media := s.Core.GetMedia(id)
+	s.Core.RUnlock()
+
+	w.Header().Set("Content-Type", media.ContentType())
+	w.Write(media.Data)
 }
 
 type templateContext struct {
@@ -181,7 +292,10 @@ func (s *Handler) template(path string) *template.Template {
 	if !s.Devel {
 		tmap = s.Tmap
 	} else {
-		tmap, err = templatemap.ParseDir("templates")
+		parser := &templatemap.Parser{
+			FuncMap: template.FuncMap{"arr": arr},
+		}
+		tmap, err = parser.ParseDir("./shell/web/templates")
 		if err != nil {
 			log.Fatal("Failed to load templates: ", err)
 		}
