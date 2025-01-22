@@ -80,7 +80,7 @@ func (m *Model) quitCmd() tea.Msg {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if msg.Type == tea.KeyRunes {
+		if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
 			m.Current += msg.String()
 		} else if msg.Type == tea.KeyEnter {
 			go m.sendMessage(m.Current)

@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,7 +14,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Server struct {
+type Handler struct {
 	http.ServeMux
 
 	Core     *core.Core
@@ -25,21 +27,24 @@ type Webhook struct {
 	URL  *url.URL
 }
 
-func NewServer(core *core.Core) *Server {
-	server := new(Server)
-	server.Core = core
+func NewHandler(core *core.Core) *Handler {
+	handler := new(Handler)
+	handler.Core = core
 
-	server.HandleFunc("POST /{user}/messages", server.handleCreateMessage)
-	server.HandleFunc("GET /{user}/messages", server.handleListMessages)
-	server.HandleFunc("POST /{user}/webhooks", server.handleCreateWebhook)
-	server.HandleFunc("DELETE /{user}/webhooks/{id}", server.handleDeleteWebhook)
+	handler.HandleFunc("POST /{user}/messages", handler.handleCreateMessage)
+	handler.HandleFunc("GET /{user}/messages", handler.handleListMessages)
+	handler.HandleFunc("POST /{user}/webhooks", handler.handleCreateWebhook)
+	handler.HandleFunc("DELETE /{user}/webhooks/{id}", handler.handleDeleteWebhook)
+	handler.HandleFunc("POST /{user}/media", handler.handleCreateMedia)
+	handler.HandleFunc("GET /{media}", handler.handleViewMedia)
+	handler.HandleFunc("GET /{media}/download", handler.handleDownloadMedia)
 
-	go server.notifyWebhooks()
+	go handler.notifyWebhooks()
 
-	return server
+	return handler
 }
 
-func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
+func (s *Handler) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 	user := r.PathValue("user")
 
 	var msg *core.Message
@@ -51,14 +56,14 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Received message: %+v", msg)
 
-	s.Core.Mux.Lock()
-	defer s.Core.Mux.Unlock()
+	s.Core.Lock()
+	defer s.Core.Unlock()
 
-	chat := s.Core.GetOrCreateChat([]string{msg.From, msg.To})
+	chat := s.Core.GetOrCreateChat([2]string{msg.From, msg.To})
 	s.Core.AddMessage(chat, msg)
 }
 
-func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
+func (s *Handler) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	user := r.PathValue("user")
 	peer := r.FormValue("peer")
 
@@ -66,9 +71,11 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing peer query parameter", http.StatusBadRequest)
 	}
 
-	s.Core.Mux.Lock()
-	chat := s.Core.GetOrCreateChat([]string{user, peer})
-	s.Core.Mux.Unlock()
+	s.Core.Lock()
+	chat := s.Core.GetOrCreateChat([2]string{user, peer})
+	s.Core.Unlock()
+
+	log.Print(chat.Messages)
 
 	if s.encodeJSON(w, chat.Messages) {
 		return
@@ -83,7 +90,7 @@ type CreateWebhookResponse struct {
 	Id string `json:"id"`
 }
 
-func (s *Server) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
+func (s *Handler) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 	user := r.PathValue("user")
 
 	var req CreateWebhookRequest
@@ -109,7 +116,7 @@ func (s *Server) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 	s.encodeJSON(w, CreateWebhookResponse{Id: id})
 }
 
-func (s *Server) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
+func (s *Handler) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	log.Printf("Deleted webhook: %+v", id)
@@ -117,10 +124,83 @@ func (s *Server) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	s.Webhooks.Delete(id)
 }
 
+type CreateMediaResponse struct {
+	Id string `json:"id"`
+}
+
+func (s *Handler) handleCreateMedia(w http.ResponseWriter, r *http.Request) {
+	user := r.PathValue("user")
+
+	r.ParseMultipartForm(1_000)
+	typ := r.MultipartForm.Value["type"][0]
+	header := r.MultipartForm.File["file"][0]
+	file, err := header.Open()
+	if err != nil {
+		log.Fatalf("Failed to open media file: %v", err)
+		http.Error(w, "Internal handler error", http.StatusInternalServerError)
+	}
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		log.Fatalf("Failed to read media file: %v", err)
+		http.Error(w, "Internal handler error", http.StatusInternalServerError)
+	}
+
+	s.Core.Lock()
+	id := s.Core.AddMedia(user, typ, data)
+	s.Core.Unlock()
+
+	s.encodeJSON(w, CreateMediaResponse{Id: id})
+}
+
+type ViewMediaResponse struct {
+	MessagingProduct string `json:"messaging_product"`
+	URL              string `json:"url"`
+	Sha256           []byte `json:"sha256"`
+	MimeType         string `json:"mime_type"`
+	FileSize         int    `json:"file_size"`
+	Id               string `json:"id"`
+}
+
+func (s *Handler) handleViewMedia(w http.ResponseWriter, r *http.Request) {
+	mediaId := r.PathValue("media")
+
+	s.Core.RLock()
+	media := s.Core.GetMedia(mediaId)
+	s.Core.RUnlock()
+
+	if media == nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+
+	baseUrl := r.URL
+
+	s.encodeJSON(w, ViewMediaResponse{
+		MessagingProduct: "whatsapp",
+		URL:              fmt.Sprintf("%s:%s/%s/download", baseUrl.Scheme, baseUrl.Host, mediaId),
+		Sha256:           media.Hash,
+		MimeType:         media.ContentType(),
+		FileSize:         len(media.Data),
+		Id:               media.Id,
+	})
+}
+
+func (s *Handler) handleDownloadMedia(w http.ResponseWriter, r *http.Request) {
+	mediaId := r.PathValue("media")
+
+	s.Core.RLock()
+	media := s.Core.GetMedia(mediaId)
+	s.Core.RUnlock()
+
+	w.Header().Set("Content-Type", media.ContentType())
+	w.Write(media.Data)
+}
+
 type jsonObject = map[string]interface{}
 type jsonArray = []interface{}
 
-func (s *Server) notifyWebhooks() {
+func (s *Handler) notifyWebhooks() {
 	events := s.Core.AddListener()
 
 	for event := range events {
@@ -156,7 +236,7 @@ func (s *Server) notifyWebhooks() {
 
 			bodyBytes, _ := json.Marshal(body)
 			bodyReader := bytes.NewReader(bodyBytes)
-			_, err := s.Client.Post(webhook.URL.String(), "text/json", bodyReader)
+			_, err := s.Client.Post(webhook.URL.String(), "application/json", bodyReader)
 			if err != nil {
 				log.Printf("Failed to send webhook %s to %s: %v", id, webhook.User, err)
 			}
@@ -168,7 +248,7 @@ func (s *Server) notifyWebhooks() {
 	}
 }
 
-func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, val any) (failed bool) {
+func (s *Handler) decodeJSON(w http.ResponseWriter, r *http.Request, val any) (failed bool) {
 	log.Printf("Decoding %T", val)
 	err := json.NewDecoder(r.Body).Decode(val)
 	if err != nil {
@@ -180,12 +260,12 @@ func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, val any) (fa
 	return false
 }
 
-func (s *Server) encodeJSON(w http.ResponseWriter, val any) (failed bool) {
-	log.Printf("Encoding %v", val)
+func (s *Handler) encodeJSON(w http.ResponseWriter, val any) (failed bool) {
+	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(val)
 	if err != nil {
 		log.Print("Failed to encode response %T: %v", val, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, "Internal handler error", http.StatusInternalServerError)
 		return true
 	}
 

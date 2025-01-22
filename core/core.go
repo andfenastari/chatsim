@@ -2,27 +2,39 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"log"
 	"slices"
 	"sync"
 
 	"github.com/google/uuid"
 )
 
+var (
+	MediaTypes = map[string]string{
+		"MP3":             "audio/mpeg",
+		"JPEG":            "image/jpeg",
+		"PNG":             "image/png",
+		"Microsoft Excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	}
+)
+
 type Core struct {
+	sync.RWMutex
+
 	ctx context.Context
 
 	addListener    chan chan *Message
 	removeListener chan chan *Message
 	events         chan *Message
 
-	Mux   sync.Mutex
 	Users []string
 	Chats []*Chat `json:"chats"`
 	Media []*Media
 }
 
 type Chat struct {
-	Members  []string   `json:"members"`
+	Members  [2]string  `json:"members"`
 	Messages []*Message `json:"messages"`
 }
 
@@ -31,6 +43,7 @@ type Message struct {
 	To   string       `json:"to"`
 	Type string       `json:"type"`
 	Text *TextMessage `json:"text,omitempty"`
+	Data interface{}
 }
 
 type TextMessage struct {
@@ -42,6 +55,19 @@ type Media struct {
 	User string `json:"user"`
 	Type string `json:"type"`
 	Data []byte `json:"data"`
+	Hash []byte `json:"hash"`
+}
+
+func (m *Media) ContentType() string {
+	return MediaTypes[m.Type]
+}
+
+func (c *Chat) Peer(user string) string {
+	if c.Members[0] == user {
+		return c.Members[1]
+	} else {
+		return c.Members[0]
+	}
 }
 
 func NewCore(ctx context.Context) *Core {
@@ -56,23 +82,22 @@ func NewCore(ctx context.Context) *Core {
 	return core
 }
 
-func (c *Core) GetOrCreateChat(members []string) *Chat {
+func (c *Core) GetOrCreateChat(members [2]string) *Chat {
+out:
 	for _, chat := range c.Chats {
-		found := true
 		for _, member := range members {
-			if !slices.Contains(chat.Members, member) {
-				found = false
-				break
+			if !slices.Contains(chat.Members[:], member) {
+				log.Printf("Chat does not cointain members %v: %+v", members, chat)
+				continue out
 			}
 		}
-
-		if found {
-			return chat
-		}
+		log.Printf("Chat contains members %v: %+v", members, chat)
+		return chat
 	}
 
 	chat := &Chat{Members: members}
 	c.Chats = append(c.Chats, chat)
+	log.Printf("Chat created: %+v", chat)
 
 	return chat
 }
@@ -84,11 +109,14 @@ func (c *Core) AddMessage(chat *Chat, msg *Message) {
 
 func (c *Core) AddMedia(user, typ string, data []byte) string {
 	id := uuid.NewString()
+	hash := sha256.Sum256(data)
+
 	m := &Media{
 		Id:   id,
 		User: user,
 		Type: typ,
 		Data: data,
+		Hash: hash[:],
 	}
 	c.Media = append(c.Media, m)
 

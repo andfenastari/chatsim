@@ -1,0 +1,22 @@
+{{template "super.tmpl" .}}
+{{define "content"}}
+
+  {{- $peer := .Data.Peer $.State.User -}}
+  <div id=chat>
+    <h1>Chat with {{$peer}}</h1>
+    <hr>
+    <ol id=messages hx-ext=sse sse-connect="/chat/{{$peer}}/events" sse-swap=message hx-swap="beforeend scroll:bottom">
+      {{range .Data.Messages}}
+        {{template "message" (arr $.State.User .)}}
+      {{end}}
+    </ol>
+    <form id=message-form
+      hx-post="/chat/{{$peer}}"
+      hx-target="#messages"
+      hx-swap="beforeend scroll:bottom"
+      hx-on::after-request="if(event.detail.successful) this.reset()">
+      <input name=text type=textarea rows=5 resize=false placeholder="Say something...">
+      <button>Send</button>
+    </form>
+  </div>
+{{end}}
